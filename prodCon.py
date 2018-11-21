@@ -15,12 +15,11 @@ q2 = queue.Queue(10)
 framDelay = 42
 
 class ExtractFrames(threading.Thread):
-	def __init__(self, semaphore1, semaphore2, target=None, name=None):
+	def __init__(self, semaphore1, semaphore2):
 		super(ExtractFrames, self).__init__()
-		self.target = target
-		self.name = name
 		self.sem1 = semaphore1 # semaphore for when queue is empty
-		self.sem2 = semaphore2 # semaphore for when full
+		self.sem2 = semaphore2 # semaphore for when queue is full
+	
 	#create output directory if it doesn't exist
 	if not os.path.exists(outDir):
 		print("Output directory for frames, {}, created...".format(outDir))
@@ -34,30 +33,28 @@ class ExtractFrames(threading.Thread):
 			if success:
 				cv2.imwrite("{}/frame_{:04d}.jpg".format(outDir, count), image) #write the image into the output directory
 				print("Reading frame {}".format(count))
-				self.sem2.acquire() # getting as long as queue isnt full
+				self.sem2.acquire() 
 				q1.put(image) #put image into queue
-				self.sem1.release() # added to queue
+				self.sem1.release() 
 				count += 1
 			else:
-				print("Export Complete")
+				print("Export Complete!!!!!")
 				break
 
 class ConvertToGray(threading.Thread):
-	def __init__(self,  semaphore1, semaphore2, semaphore3, semaphore4, target=None, name=None):
+	def __init__(self,  semaphore1, semaphore2, semaphore3, semaphore4):
 		super(ConvertToGray, self).__init__()
-		self.target = target
-		self.name = name
 		self.sem1 = semaphore1 # semaphore for when queue is empty
-		self.sem2 = semaphore2 # semaphore for when full
+		self.sem2 = semaphore2 # semaphore for when queue is full
 		self.sem3 = semaphore3 # semaphore for when second queue is empty
 		self.sem4 = semaphore4 # semaphore for when second queue is full
 
 	def run(self):
 		count = 0
 		while True:
-			self.sem1.acquire() # since we are getting we dont want queue to be full
+			self.sem1.acquire() 
 			image = q1.get() #from the queue grab the next image
-			self.sem2.release() # and now we have added to queue
+			self.sem2.release() 
 			inFileName = "{}/frame_{:04d}.jpg".format(outDir, count)
 			inputFrame = cv2.imread(inFileName, cv2.IMREAD_COLOR) #read the image
 
@@ -73,21 +70,22 @@ class ConvertToGray(threading.Thread):
 				count += 1
 				inFileName = "{}/grayscale_{:04d}.jpg".format(outDir, count) 
 				success, jpgImage = cv2.imencode('.jpg', image) #encode the image
+			
+			if q1.empty(): # once queue one is empty break and should only be empty if done exporting thanks to semaphores
+				break
 
 
 class DisplayVideo(threading.Thread):
-	def __init__(self,  semaphore3, semaphore4, target=None, name=None):
+	def __init__(self,  semaphore3, semaphore4):
 		super(DisplayVideo, self).__init__()
-		self.target = target
-		self.name = name
 		self.sem3 = semaphore3 # semaphore for when second queue is empty
 		self.sem4 = semaphore4 # semaphore for when second queue is full
 
 	def run(self):
 		count = 0
 		while True:
-			self.sem3.acquire()
-			q2.get() #grap grayscale image/frame from second queue
+			self.sem3.acquire() # prevents from taking from empty queue
+			q2.get() #grab grayscale image/frame from second queue
 			self.sem4.release()
 			startTime = time.time() #timer for playing
 			frameName = "{}/grayscale_{:04d}.jpg".format(outDir, count)
@@ -110,8 +108,9 @@ class DisplayVideo(threading.Thread):
 					frameName = "{}/grayscale_{:04d}.jpg".format(outDir, count) # read next frame
 					frame = cv2.imread(frameName)
 					cv2.destroyAllWindows()
-			else:
+			if q2.empty(): # should never be empty unless we are done displaying thanks to semaphores
 				print("Video is done playing...")
+				cv2.destroyAllWindows() #closes video gui window 
 				break
 
 if __name__ == '__main__':
@@ -129,4 +128,3 @@ if __name__ == '__main__':
 	extract.start()
 	convert.start()
 	video.start()
-
